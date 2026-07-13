@@ -226,6 +226,30 @@
     line-height:1.5;
   }
   select{-webkit-appearance:none; appearance:none;}
+  .datefield{position:relative;}
+  .date-disp{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:14px;
+    padding:9px 10px;
+    border-radius:9px;
+    border:1px solid var(--rule);
+    background:#fff;
+    color:var(--ink);
+    min-height:20px;
+    display:flex;
+    align-items:center;
+  }
+  .date-native{
+    position:absolute;
+    inset:0;
+    opacity:0;
+    margin:0;
+    padding:0;
+    border:none;
+    width:100%;
+    height:100%;
+    cursor:pointer;
+  }
   .settings-grp{margin-bottom:14px;}
   .settings-grp:last-child{margin-bottom:0;}
   .toast{
@@ -253,6 +277,42 @@ const monthLabel = (mk) => {
 };
 const fmt = (n) => (Math.round(n*100)/100).toLocaleString('en-IN');
 
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function formatDisplayDate(dateStr){
+  if(!dateStr) return '';
+  const [y,m,d] = String(dateStr).split('-').map(Number);
+  if(!y||!m||!d) return dateStr;
+  const dd = String(d).padStart(2,'0');
+  const mm = String(m).padStart(2,'0');
+  switch(state.settings.dateFormat){
+    case 'slash': return `${dd}/${mm}/${y}`;
+    case 'dash': return `${dd}-${mm}-${y}`;
+    default: return `${dd} ${MONTH_ABBR[m-1]} ${y}`;
+  }
+}
+/**
+ * A date input that always DISPLAYS in the user's chosen format
+ * (02 Jul 2026 / 02/07/2026 / 02-07-2026) regardless of device locale.
+ * Under the hood it's still a native <input type="date"> — stacked
+ * invisibly on top of the styled display — so tapping it anywhere still
+ * opens the device's normal calendar picker (best mobile UX/accessibility).
+ * Only the *field text* is locale-proof this way; the native calendar
+ * grid itself (month names, first day of week) is still drawn by the
+ * browser/OS and can't be restyled from web code.
+ */
+function dateField(id, value){
+  const disp = value ? formatDisplayDate(value) : 'Select date';
+  return `<div class="datefield">
+    <div class="date-disp" id="${id}_disp">${disp}</div>
+    <input type="date" id="${id}" value="${value||''}" class="date-native" oninput="syncDateDisplay('${id}')" onchange="syncDateDisplay('${id}')">
+  </div>`;
+}
+function syncDateDisplay(id){
+  const el = document.getElementById(id);
+  const disp = document.getElementById(id+'_disp');
+  if(el && disp) disp.textContent = el.value ? formatDisplayDate(el.value) : 'Select date';
+}
+
 function defaultState(){
   return {
     settings: {
@@ -264,6 +324,7 @@ function defaultState(){
       gasCapacityKg: 14.2,
       electricityRate: 8,
       householdName: 'My Household',
+      dateFormat: 'text',
       sheetUrl: '',
       sheetToken: ''
     },
@@ -323,6 +384,22 @@ function isWeekend(dateStr){
   const day = new Date(y, m-1, d).getDay(); // 0=Sun ... 6=Sat
   return day===0 || day===6;
 }
+function parseLocalDate(dateStr){
+  // Manual parse instead of new Date(string) — mobile browsers (notably
+  // iOS Safari) are far stricter about accepted date-string formats and
+  // can silently return an Invalid Date for anything not perfectly ISO.
+  const [y,m,d] = String(dateStr).split('-').map(Number);
+  return new Date(y, (m||1)-1, d||1);
+}
+function fmtDate(dateStr){
+  // Display-only formatter: 'YYYY-MM-DD' -> '02 Jul 2026'.
+  // Storage/keys/sorting always stay on the underlying ISO string.
+  if(!dateStr) return '';
+  const d = parseLocalDate(dateStr);
+  const day = String(d.getDate()).padStart(2,'0');
+  const month = d.toLocaleDateString('en-IN', {month:'short'});
+  return `${day} ${month} ${d.getFullYear()}`;
+}
 function newspaperPriceForDate(dateStr){
   return isWeekend(dateStr) ? state.settings.newspaperWeekendPrice : state.settings.newspaperWeekdayPrice;
 }
@@ -345,19 +422,22 @@ function electricityMonthly(mk){
   return {units, amount};
 }
 function gasStatus(){
-  const refills = [...state.gas].sort((a,b)=>a.date.localeCompare(b.date));
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  const refills = state.gas
+    .filter(g => g && typeof g.date === 'string' && dateRe.test(g.date))
+    .sort((a,b)=>a.date.localeCompare(b.date));
   if(refills.length===0) return {status:'none'};
   const last = refills[refills.length-1];
   let avgDays = 30;
   if(refills.length>=2){
     const gaps=[];
     for(let i=1;i<refills.length;i++){
-      const d1=new Date(refills[i-1].date), d2=new Date(refills[i].date);
+      const d1=parseLocalDate(refills[i-1].date), d2=parseLocalDate(refills[i].date);
       gaps.push((d2-d1)/86400000);
     }
     avgDays = Math.round(gaps.reduce((a,b)=>a+b,0)/gaps.length);
   }
-  const lastDate = new Date(last.date);
+  const lastDate = parseLocalDate(last.date);
   const predicted = new Date(lastDate.getTime() + avgDays*86400000);
   const daysLeft = Math.round((predicted - new Date())/86400000);
   let status = 'ok';
@@ -441,8 +521,8 @@ function homeTab(){
 
   // reminders
   let alerts = '';
-  if(gs.status==='overdue') alerts += `<div class="alert">⛽ Gas cylinder overdue by ${Math.abs(gs.daysLeft)} day(s). Predicted refill was ${gs.predicted}.</div>`;
-  else if(gs.status==='soon') alerts += `<div class="alert gold">⛽ Gas cylinder likely needed in ${gs.daysLeft} day(s) — around ${gs.predicted}.</div>`;
+  if(gs.status==='overdue') alerts += `<div class="alert">⛽ Gas cylinder overdue by ${Math.abs(gs.daysLeft)} day(s). Predicted refill was ${fmtDate(gs.predicted)}.</div>`;
+  else if(gs.status==='soon') alerts += `<div class="alert gold">⛽ Gas cylinder likely needed in ${gs.daysLeft} day(s) — around ${fmtDate(gs.predicted)}.</div>`;
 
   const prevMonth = prevMonthKey(mk);
   if(milkMonthly(prevMonth).liters>0 && !state.paid.milk[prevMonth]){
@@ -481,7 +561,7 @@ function homeTab(){
       <div class="stat"><div class="val">${mMilk.liters} L</div><div class="lbl">Milk · ${state.settings.currency}${fmt(mMilk.amount)}</div></div>
       <div class="stat"><div class="val">${mPaper.days}d</div><div class="lbl">Newspaper · ${state.settings.currency}${fmt(mPaper.amount)}</div></div>
       <div class="stat"><div class="val">${mPower.units||0}</div><div class="lbl">Units billed · ${state.settings.currency}${fmt(mPower.amount)}</div></div>
-      <div class="stat"><div class="val">${gs.status==='none'?'—':gs.daysLeft+'d'}</div><div class="lbl">Gas · ${gs.status==='none'?'no data':('next ~'+gs.predicted)}</div></div>
+      <div class="stat"><div class="val">${gs.status==='none'?'—':gs.daysLeft+'d'}</div><div class="lbl">Gas · ${gs.status==='none'?'no data':('next ~'+fmtDate(gs.predicted))}</div></div>
     </div>
   </div>
   `;
@@ -537,7 +617,7 @@ function milkTab(){
     <div class="list">
       ${entries.length? entries.map(([d,v])=>`
         <div class="list-item">
-          <span>${d}</span>
+          <span>${fmtDate(d)}</span>
           <span class="amt">${v} L
             <button class="small ghost" style="margin-left:8px" onclick="deleteMilk('${d}')">✕</button>
           </span>
@@ -592,7 +672,7 @@ function paperTab(){
     <div class="list">
       ${entries.length? entries.map(([d,v])=>`
         <div class="list-item">
-          <span>${d} <span class="meta">${isWeekend(d)?'(weekend)':'(weekday)'}</span></span>
+          <span>${fmtDate(d)} <span class="meta">${isWeekend(d)?'(weekend)':'(weekday)'}</span></span>
           <span class="amt">${v? (state.settings.currency+fmt(newspaperPriceForDate(d))) : 'Missed'}
             <button class="small ghost" style="margin-left:8px" onclick="deletePaper('${d}')">✕</button>
           </span>
@@ -620,9 +700,9 @@ function gasTab(){
     <h2><span class="icn">🔥</span> Cylinder status <span class="stamp ${stampClass}" style="margin-left:auto">${stampText}</span></h2>
     ${gs.status==='none' ? '<div class="empty">Log your first refill below to start tracking.</div>' : `
     <div class="stat-grid">
-      <div class="stat"><div class="val">${gs.last.date}</div><div class="lbl">Last refill</div></div>
+      <div class="stat"><div class="val">${fmtDate(gs.last.date)}</div><div class="lbl">Last refill</div></div>
       <div class="stat"><div class="val">${gs.avgDays}d</div><div class="lbl">Avg. days per cylinder</div></div>
-      <div class="stat"><div class="val">${gs.predicted}</div><div class="lbl">Predicted next refill</div></div>
+      <div class="stat"><div class="val">${fmtDate(gs.predicted)}</div><div class="lbl">Predicted next refill</div></div>
       <div class="stat"><div class="val">${gs.daysLeft}d</div><div class="lbl">${gs.daysLeft<0?'Days overdue':'Days remaining'}</div></div>
     </div>`}
   </div>
@@ -641,7 +721,7 @@ function gasTab(){
     <div class="list">
       ${refills.length? refills.map(r=>`
         <div class="list-item">
-          <span>${r.date}</span>
+          <span>${fmtDate(r.date)}</span>
           <span class="amt">${state.settings.currency}${fmt(r.cost)}
             <button class="small ghost" style="margin-left:8px" onclick="deleteGas('${r.id}')">✕</button>
           </span>
@@ -690,7 +770,7 @@ function powerTab(){
     <div class="list">
       ${bills.length? bills.map(b=>`
         <div class="list-item">
-          <span>${b.date}<br><span class="meta">${b.units||0} kWh${b.dueDate?(' · due '+b.dueDate):''}</span></span>
+          <span>${fmtDate(b.date)}<br><span class="meta">${b.units||0} kWh${b.dueDate?(' · due '+fmtDate(b.dueDate)):''}</span></span>
           <span class="amt">${state.settings.currency}${fmt(b.amount)}
             <button class="small ghost" style="margin-left:8px" onclick="deletePower('${b.id}')">✕</button>
           </span>
