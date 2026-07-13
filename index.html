@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ghar Khata — Household Ledger</title>
+<meta name="theme-color" content="#1E2A38">
+<meta name="description" content="Track milk, newspaper, gas cylinder and electricity — free, offline, on your device.">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EEF1E6;
+    --paper-card:#FFFDF7;
+    --ink:#1E2A38;
+    --ink-soft:#51606D;
+    --rule:#C7CFC0;
+    --stamp-red:#A63325;
+    --stamp-green:#2F6E52;
+    --gold:#B4842A;
+    --shadow: 0 2px 10px rgba(30,42,56,0.08);
+    --radius: 14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--ink);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  .app{
+    max-width:520px;
+    margin:0 auto;
+    background:var(--paper);
+    min-height:100vh;
+    position:relative;
+    padding-bottom:88px;
+    background-image:
+      linear-gradient(var(--rule) 1px, transparent 1px);
+    background-size: 100% 34px;
+    background-position: 0 128px;
+  }
+  header.top{
+    background:var(--ink);
+    color:var(--paper);
+    padding:22px 20px 26px;
+    position:relative;
+  }
+  header.top h1{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:26px;
+    margin:0;
+    letter-spacing:0.2px;
+  }
+  header.top .sub{
+    font-size:12.5px;
+    color:#B9C2C9;
+    margin-top:4px;
+    font-family:'IBM Plex Mono', monospace;
+  }
+  header.top .today{
+    position:absolute;
+    right:20px;
+    top:22px;
+    text-align:right;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    color:#B9C2C9;
+  }
+  main{padding:18px 16px 8px;}
+  .card{
+    background:var(--paper-card);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding:16px 16px 14px;
+    margin-bottom:14px;
+    position:relative;
+    border-left:3px dashed var(--rule);
+  }
+  .card h2{
+    font-family:'Fraunces', serif;
+    font-size:17px;
+    margin:0 0 10px;
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .card h2 .icn{font-size:18px;}
+  .row{display:flex; gap:10px; align-items:center;}
+  .row + .row{margin-top:8px;}
+  label{font-size:12px; color:var(--ink-soft); font-weight:500;}
+  input, select{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:14px;
+    padding:9px 10px;
+    border-radius:9px;
+    border:1px solid var(--rule);
+    background:#fff;
+    color:var(--ink);
+    width:100%;
+  }
+  input:focus, select:focus{outline:2px solid var(--ink); outline-offset:1px;}
+  button{
+    font-family:'IBM Plex Sans', sans-serif;
+    font-weight:600;
+    font-size:13.5px;
+    border:none;
+    border-radius:9px;
+    padding:10px 14px;
+    cursor:pointer;
+    background:var(--ink);
+    color:var(--paper);
+    white-space:nowrap;
+  }
+  button:active{transform:translateY(1px);}
+  button.ghost{
+    background:transparent;
+    color:var(--ink);
+    border:1px solid var(--rule);
+  }
+  button.danger{background:var(--stamp-red); color:#fff;}
+  button.small{padding:6px 10px; font-size:12px;}
+  .stamp{
+    display:inline-block;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    font-weight:600;
+    letter-spacing:1px;
+    padding:3px 8px;
+    border-radius:5px;
+    border:1.5px solid currentColor;
+    transform:rotate(-4deg);
+    text-transform:uppercase;
+  }
+  .stamp.ok{color:var(--stamp-green);}
+  .stamp.warn{color:var(--gold);}
+  .stamp.due{color:var(--stamp-red);}
+  .stat-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:6px;}
+  .stat{
+    background:var(--paper);
+    border-radius:10px;
+    padding:10px 12px;
+  }
+  .stat .val{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:18px;
+    font-weight:600;
+  }
+  .stat .lbl{font-size:11px; color:var(--ink-soft); margin-top:2px;}
+  .list{margin-top:8px;}
+  .list-item{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:8px 0;
+    border-bottom:1px dashed var(--rule);
+    font-size:13.5px;
+  }
+  .list-item:last-child{border-bottom:none;}
+  .list-item .meta{color:var(--ink-soft); font-size:12px;}
+  .amt{font-family:'IBM Plex Mono', monospace; font-weight:600;}
+  .alert{
+    background:#FDF0EC;
+    border:1px solid var(--stamp-red);
+    color:var(--stamp-red);
+    border-radius:10px;
+    padding:10px 12px;
+    font-size:13px;
+    margin-bottom:10px;
+    font-weight:500;
+  }
+  .alert.gold{background:#FBF3E4; border-color:var(--gold); color:#8A6620;}
+  nav.tabs{
+    position:fixed;
+    bottom:0; left:0; right:0;
+    background:var(--ink);
+    max-width:520px;
+    margin:0 auto;
+    display:flex;
+    padding:8px 6px calc(8px + env(safe-area-inset-bottom));
+    box-shadow:0 -2px 10px rgba(0,0,0,0.2);
+  }
+  nav.tabs button{
+    flex:1;
+    background:none;
+    color:#8E9AA5;
+    font-size:10.5px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:2px;
+    padding:6px 2px;
+    border-radius:8px;
+  }
+  nav.tabs button .ti{font-size:17px;}
+  nav.tabs button.active{color:#fff; background:#2C3B4C;}
+  h3.section{
+    font-family:'Fraunces', serif;
+    font-size:15px;
+    margin:18px 0 8px;
+    color:var(--ink-soft);
+    font-weight:600;
+  }
+  .bar-row{display:flex; align-items:center; gap:8px; margin-bottom:7px; font-size:12px;}
+  .bar-row .mlabel{width:38px; color:var(--ink-soft); font-family:'IBM Plex Mono', monospace;}
+  .bar-track{flex:1; background:var(--paper); border-radius:6px; height:16px; overflow:hidden;}
+  .bar-fill{height:100%; background:var(--ink); border-radius:6px;}
+  .bar-amt{width:64px; text-align:right; font-family:'IBM Plex Mono', monospace;}
+  .paid-toggle{display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;}
+  .empty{color:var(--ink-soft); font-size:13px; text-align:center; padding:14px 0;}
+  .copybox{
+    white-space:pre-wrap;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    background:var(--paper);
+    border-radius:8px;
+    padding:10px;
+    margin-top:8px;
+    line-height:1.5;
+  }
+  select{-webkit-appearance:none; appearance:none;}
+  .settings-grp{margin-bottom:14px;}
+  .settings-grp:last-child{margin-bottom:0;}
+  .toast{
+    position:fixed; left:50%; bottom:96px; transform:translateX(-50%);
+    background:var(--ink); color:#fff; padding:8px 16px; border-radius:20px;
+    font-size:12.5px; opacity:0; pointer-events:none; transition:opacity .25s;
+    z-index:50;
+  }
+  .toast.show{opacity:1;}
+  a.file-link{color:var(--ink); font-weight:600;}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- Storage ---------- */
+const STORE_KEY = 'gharKhata_v1';
+const todayStr = () => new Date().toISOString().slice(0,10);
+const monthKeyOf = (d) => d.slice(0,7);
+const monthLabel = (mk) => {
+  const [y,m] = mk.split('-');
+  return new Date(y, m-1, 1).toLocaleDateString('en-IN', {month:'short', year:'numeric'});
+};
+const fmt = (n) => (Math.round(n*100)/100).toLocaleString('en-IN');
+
+function defaultState(){
+  return {
+    settings: {
+      currency: '₹',
+      milkPrice: 60,
+      newspaperWeekdayPrice: 4,
+      newspaperWeekendPrice: 5,
+      gasPrice: 900,
+      gasCapacityKg: 14.2,
+      electricityRate: 8,
+      householdName: 'My Household',
+      sheetUrl: '',
+      sheetToken: ''
+    },
+    milk: {},        // 'YYYY-MM-DD': liters
+    newspaper: {},   // 'YYYY-MM-DD': true
+    gas: [],         // {id,date,cost,kg}
+    electricity: [], // {id,date,units,amount,dueDate,paid}
+    paid: { milk:{}, newspaper:{} } // 'YYYY-MM': true
+  };
+}
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if(!raw) return defaultState();
+    const parsed = JSON.parse(raw);
+    const d = defaultState();
+    return {
+      settings: {...d.settings, ...(parsed.settings||{})},
+      milk: parsed.milk || {},
+      newspaper: parsed.newspaper || {},
+      gas: parsed.gas || [],
+      electricity: parsed.electricity || [],
+      paid: {milk:{...(parsed.paid?.milk||{})}, newspaper:{...(parsed.paid?.newspaper||{})}}
+    };
+  }catch(e){
+    console.error('Load failed, starting fresh', e);
+    return defaultState();
+  }
+}
+
+let state = loadState();
+
+function save(){
+  localStorage.setItem(STORE_KEY, JSON.stringify(state));
+}
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(()=>t.classList.remove('show'), 1600);
+}
+
+/* ---------- Derived data ---------- */
+function milkMonthly(mk){
+  let liters=0;
+  for(const [d,v] of Object.entries(state.milk)){
+    if(monthKeyOf(d)===mk) liters += Number(v)||0;
+  }
+  return {liters, amount: liters*state.settings.milkPrice};
+}
+function isWeekend(dateStr){
+  // Parse as local date to avoid timezone off-by-one
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const day = new Date(y, m-1, d).getDay(); // 0=Sun ... 6=Sat
+  return day===0 || day===6;
+}
+function newspaperPriceForDate(dateStr){
+  return isWeekend(dateStr) ? state.settings.newspaperWeekendPrice : state.settings.newspaperWeekdayPrice;
+}
+function newspaperMonthly(mk){
+  let days=0, amount=0;
+  for(const [d,v] of Object.entries(state.newspaper)){
+    if(monthKeyOf(d)===mk && v){
+      days++;
+      amount += newspaperPriceForDate(d);
+    }
+  }
+  return {days, amount};
+}
+function electricityMonthly(mk){
+  let units=0, amount=0;
+  state.electricity.filter(b=>monthKeyOf(b.date)===mk).forEach(b=>{
+    units += Number(b.units)||0;
+    amount += Number(b.amount)||0;
+  });
+  return {units, amount};
+}
+function gasStatus(){
+  const refills = [...state.gas].sort((a,b)=>a.date.localeCompare(b.date));
+  if(refills.length===0) return {status:'none'};
+  const last = refills[refills.length-1];
+  let avgDays = 30;
+  if(refills.length>=2){
+    const gaps=[];
+    for(let i=1;i<refills.length;i++){
+      const d1=new Date(refills[i-1].date), d2=new Date(refills[i].date);
+      gaps.push((d2-d1)/86400000);
+    }
+    avgDays = Math.round(gaps.reduce((a,b)=>a+b,0)/gaps.length);
+  }
+  const lastDate = new Date(last.date);
+  const predicted = new Date(lastDate.getTime() + avgDays*86400000);
+  const daysLeft = Math.round((predicted - new Date())/86400000);
+  let status = 'ok';
+  if(daysLeft<0) status='overdue';
+  else if(daysLeft<=4) status='soon';
+  return {status, last, avgDays, predicted: predicted.toISOString().slice(0,10), daysLeft, refillCount: refills.length};
+}
+function last6Months(){
+  const arr=[];
+  const now=new Date();
+  for(let i=5;i>=0;i--){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    arr.push(d.toISOString().slice(0,7));
+  }
+  return arr;
+}
+
+/* ---------- Router ---------- */
+let activeTab = 'home';
+const TABS = [
+  {id:'home', label:'Home', icon:'🏠'},
+  {id:'milk', label:'Milk', icon:'🥛'},
+  {id:'paper', label:'Paper', icon:'📰'},
+  {id:'gas', label:'Gas', icon:'🔥'},
+  {id:'power', label:'Power', icon:'⚡'},
+  {id:'reports', label:'Reports', icon:'📒'},
+];
+
+function setTab(id){ activeTab = id; render(); }
+
+function render(){
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    ${headerHtml()}
+    <main>${renderTab()}</main>
+    ${navHtml()}
+  `;
+}
+
+function headerHtml(){
+  const d = new Date();
+  return `
+  <header class="top">
+    <h1>Ghar Khata</h1>
+    <div class="sub">${state.settings.householdName} · household ledger</div>
+    <div class="today">${d.toLocaleDateString('en-IN',{weekday:'short', day:'numeric', month:'short'})}</div>
+  </header>`;
+}
+
+function navHtml(){
+  return `<nav class="tabs">
+    ${TABS.map(t=>`
+      <button class="${activeTab===t.id?'active':''}" onclick="setTab('${t.id}')">
+        <span class="ti">${t.icon}</span><span>${t.label}</span>
+      </button>`).join('')}
+  </nav>`;
+}
+
+function renderTab(){
+  switch(activeTab){
+    case 'home': return homeTab();
+    case 'milk': return milkTab();
+    case 'paper': return paperTab();
+    case 'gas': return gasTab();
+    case 'power': return powerTab();
+    case 'reports': return reportsTab();
+    default: return '';
+  }
+}
+
+/* ---------- HOME ---------- */
+function homeTab(){
+  const mk = monthKeyOf(todayStr());
+  const gs = gasStatus();
+  const mMilk = milkMonthly(mk);
+  const mPaper = newspaperMonthly(mk);
+  const mPower = electricityMonthly(mk);
+  const today = todayStr();
+  const milkToday = state.milk[today] ?? '';
+  const paperToday = !!state.newspaper[today];
+
+  // reminders
+  let alerts = '';
+  if(gs.status==='overdue') alerts += `<div class="alert">⛽ Gas cylinder overdue by ${Math.abs(gs.daysLeft)} day(s). Predicted refill was ${gs.predicted}.</div>`;
+  else if(gs.status==='soon') alerts += `<div class="alert gold">⛽ Gas cylinder likely needed in ${gs.daysLeft} day(s) — around ${gs.predicted}.</div>`;
+
+  const prevMonth = prevMonthKey(mk);
+  if(milkMonthly(prevMonth).liters>0 && !state.paid.milk[prevMonth]){
+    alerts += `<div class="alert">🥛 Milkman payment for ${monthLabel(prevMonth)} still marked unpaid (${state.settings.currency}${fmt(milkMonthly(prevMonth).amount)}).</div>`;
+  }
+  if(newspaperMonthly(prevMonth).days>0 && !state.paid.newspaper[prevMonth]){
+    alerts += `<div class="alert">📰 Newspaper vendor payment for ${monthLabel(prevMonth)} still marked unpaid (${state.settings.currency}${fmt(newspaperMonthly(prevMonth).amount)}).</div>`;
+  }
+
+  return `
+  ${alerts}
+  <div class="card">
+    <h2><span class="icn">✍️</span> Quick log — today</h2>
+    <div class="row">
+      <div style="flex:1">
+        <label>Milk delivered (litres)</label>
+        <input type="number" step="0.25" min="0" id="qMilk" value="${milkToday}" placeholder="e.g. 1.5">
+      </div>
+      <button onclick="quickSaveMilk()">Save</button>
+    </div>
+    <div class="row" style="margin-top:12px;">
+      <div style="flex:1">
+        <label>Newspaper delivered?</label>
+        <select id="qPaper">
+          <option value="yes" ${paperToday?'selected':''}>Yes</option>
+          <option value="no" ${!paperToday?'selected':''}>No</option>
+        </select>
+      </div>
+      <button onclick="quickSavePaper()">Save</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">📊</span> This month so far — ${monthLabel(mk)}</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="val">${mMilk.liters} L</div><div class="lbl">Milk · ${state.settings.currency}${fmt(mMilk.amount)}</div></div>
+      <div class="stat"><div class="val">${mPaper.days}d</div><div class="lbl">Newspaper · ${state.settings.currency}${fmt(mPaper.amount)}</div></div>
+      <div class="stat"><div class="val">${mPower.units||0}</div><div class="lbl">Units billed · ${state.settings.currency}${fmt(mPower.amount)}</div></div>
+      <div class="stat"><div class="val">${gs.status==='none'?'—':gs.daysLeft+'d'}</div><div class="lbl">Gas · ${gs.status==='none'?'no data':('next ~'+gs.predicted)}</div></div>
+    </div>
+  </div>
+  `;
+}
+
+function prevMonthKey(mk){
+  const [y,m] = mk.split('-').map(Number);
+  const d = new Date(y, m-2, 1);
+  return d.toISOString().slice(0,7);
+}
+
+function quickSaveMilk(){
+  const v = document.getElementById('qMilk').value;
+  const today = todayStr();
+  if(v===''){ delete state.milk[today]; } else { state.milk[today]=Number(v); }
+  save(); toast('Milk entry saved'); render();
+}
+function quickSavePaper(){
+  const v = document.getElementById('qPaper').value;
+  const today = todayStr();
+  state.newspaper[today] = (v==='yes');
+  save(); toast('Newspaper entry saved'); render();
+}
+
+/* ---------- MILK ---------- */
+function milkTab(){
+  const entries = Object.entries(state.milk).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,20);
+  const mk = monthKeyOf(todayStr());
+  const m = milkMonthly(mk);
+  return `
+  <div class="card">
+    <h2><span class="icn">🥛</span> Add / edit entry</h2>
+    <div class="row">
+      <div style="flex:1"><label>Date</label><input type="date" id="mDate" value="${todayStr()}"></div>
+      <div style="flex:1"><label>Litres</label><input type="number" step="0.25" min="0" id="mQty" placeholder="e.g. 1.5"></div>
+    </div>
+    <div class="row" style="margin-top:10px;"><button onclick="addMilkEntry()">Save entry</button></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">📅</span> ${monthLabel(mk)} summary</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="val">${m.liters} L</div><div class="lbl">Total litres</div></div>
+      <div class="stat"><div class="val">${state.settings.currency}${fmt(m.amount)}</div><div class="lbl">Amount due @ ${state.settings.currency}${state.settings.milkPrice}/L</div></div>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <label class="paid-toggle"><input type="checkbox" ${state.paid.milk[mk]?'checked':''} onchange="togglePaid('milk','${mk}',this.checked)"> Marked paid to milkman for ${monthLabel(mk)}</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">🧾</span> Recent entries</h2>
+    <div class="list">
+      ${entries.length? entries.map(([d,v])=>`
+        <div class="list-item">
+          <span>${d}</span>
+          <span class="amt">${v} L
+            <button class="small ghost" style="margin-left:8px" onclick="deleteMilk('${d}')">✕</button>
+          </span>
+        </div>`).join('') : '<div class="empty">No entries yet — add your first one above.</div>'}
+    </div>
+  </div>
+  `;
+}
+function addMilkEntry(){
+  const d = document.getElementById('mDate').value || todayStr();
+  const q = document.getElementById('mQty').value;
+  if(q===''){ toast('Enter litres'); return; }
+  state.milk[d] = Number(q);
+  save(); toast('Milk entry saved'); render();
+}
+function deleteMilk(d){ delete state.milk[d]; save(); render(); }
+function togglePaid(cat, mk, val){
+  state.paid[cat][mk] = val;
+  save(); toast(val? 'Marked as paid' : 'Marked as unpaid'); render();
+}
+
+/* ---------- NEWSPAPER ---------- */
+function paperTab(){
+  const entries = Object.entries(state.newspaper).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,20);
+  const mk = monthKeyOf(todayStr());
+  const m = newspaperMonthly(mk);
+  return `
+  <div class="card">
+    <h2><span class="icn">📰</span> Add / edit entry</h2>
+    <div class="row">
+      <div style="flex:1"><label>Date</label><input type="date" id="pDate" value="${todayStr()}"></div>
+      <div style="flex:1"><label>Delivered?</label>
+        <select id="pVal"><option value="yes">Yes</option><option value="no">No</option></select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px;"><button onclick="addPaperEntry()">Save entry</button></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">📅</span> ${monthLabel(mk)} summary</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="val">${m.days} days</div><div class="lbl">Delivered</div></div>
+      <div class="stat"><div class="val">${state.settings.currency}${fmt(m.amount)}</div><div class="lbl">Amount due · weekday ${state.settings.currency}${state.settings.newspaperWeekdayPrice}, weekend ${state.settings.currency}${state.settings.newspaperWeekendPrice}</div></div>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <label class="paid-toggle"><input type="checkbox" ${state.paid.newspaper[mk]?'checked':''} onchange="togglePaid('newspaper','${mk}',this.checked)"> Marked paid to vendor for ${monthLabel(mk)}</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">🧾</span> Recent entries</h2>
+    <div class="list">
+      ${entries.length? entries.map(([d,v])=>`
+        <div class="list-item">
+          <span>${d} <span class="meta">${isWeekend(d)?'(weekend)':'(weekday)'}</span></span>
+          <span class="amt">${v? (state.settings.currency+fmt(newspaperPriceForDate(d))) : 'Missed'}
+            <button class="small ghost" style="margin-left:8px" onclick="deletePaper('${d}')">✕</button>
+          </span>
+        </div>`).join('') : '<div class="empty">No entries yet — add your first one above.</div>'}
+    </div>
+  </div>
+  `;
+}
+function addPaperEntry(){
+  const d = document.getElementById('pDate').value || todayStr();
+  const v = document.getElementById('pVal').value;
+  state.newspaper[d] = (v==='yes');
+  save(); toast('Newspaper entry saved'); render();
+}
+function deletePaper(d){ delete state.newspaper[d]; save(); render(); }
+
+/* ---------- GAS ---------- */
+function gasTab(){
+  const gs = gasStatus();
+  const refills = [...state.gas].sort((a,b)=>b.date.localeCompare(a.date));
+  const stampClass = gs.status==='overdue'?'due':gs.status==='soon'?'warn':'ok';
+  const stampText = gs.status==='none'?'no data':gs.status==='overdue'?'overdue':gs.status==='soon'?'due soon':'on track';
+  return `
+  <div class="card">
+    <h2><span class="icn">🔥</span> Cylinder status <span class="stamp ${stampClass}" style="margin-left:auto">${stampText}</span></h2>
+    ${gs.status==='none' ? '<div class="empty">Log your first refill below to start tracking.</div>' : `
+    <div class="stat-grid">
+      <div class="stat"><div class="val">${gs.last.date}</div><div class="lbl">Last refill</div></div>
+      <div class="stat"><div class="val">${gs.avgDays}d</div><div class="lbl">Avg. days per cylinder</div></div>
+      <div class="stat"><div class="val">${gs.predicted}</div><div class="lbl">Predicted next refill</div></div>
+      <div class="stat"><div class="val">${gs.daysLeft}d</div><div class="lbl">${gs.daysLeft<0?'Days overdue':'Days remaining'}</div></div>
+    </div>`}
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">➕</span> Log a refill</h2>
+    <div class="row">
+      <div style="flex:1"><label>Date</label><input type="date" id="gDate" value="${todayStr()}"></div>
+      <div style="flex:1"><label>Cost (${state.settings.currency})</label><input type="number" step="1" min="0" id="gCost" value="${state.settings.gasPrice}"></div>
+    </div>
+    <div class="row" style="margin-top:10px;"><button onclick="addGasEntry()">Save refill</button></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">🧾</span> Refill history</h2>
+    <div class="list">
+      ${refills.length? refills.map(r=>`
+        <div class="list-item">
+          <span>${r.date}</span>
+          <span class="amt">${state.settings.currency}${fmt(r.cost)}
+            <button class="small ghost" style="margin-left:8px" onclick="deleteGas('${r.id}')">✕</button>
+          </span>
+        </div>`).join('') : '<div class="empty">No refills logged yet.</div>'}
+    </div>
+  </div>
+  `;
+}
+function addGasEntry(){
+  const d = document.getElementById('gDate').value || todayStr();
+  const c = document.getElementById('gCost').value;
+  state.gas.push({id: 'g'+Date.now(), date:d, cost:Number(c)||0});
+  save(); toast('Refill logged'); render();
+}
+function deleteGas(id){ state.gas = state.gas.filter(g=>g.id!==id); save(); render(); }
+
+/* ---------- ELECTRICITY ---------- */
+function powerTab(){
+  const bills = [...state.electricity].sort((a,b)=>b.date.localeCompare(a.date));
+  const mk = monthKeyOf(todayStr());
+  const m = electricityMonthly(mk);
+  return `
+  <div class="card">
+    <h2><span class="icn">⚡</span> Add a bill</h2>
+    <div class="row">
+      <div style="flex:1"><label>Bill date</label><input type="date" id="eDate" value="${todayStr()}"></div>
+      <div style="flex:1"><label>Units (kWh)</label><input type="number" step="1" min="0" id="eUnits" placeholder="e.g. 210"></div>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div style="flex:1"><label>Amount paid (${state.settings.currency})</label><input type="number" step="1" min="0" id="eAmount" placeholder="e.g. 1680"></div>
+      <div style="flex:1"><label>Due date (optional)</label><input type="date" id="eDue"></div>
+    </div>
+    <div class="row" style="margin-top:10px;"><button onclick="addPowerEntry()">Save bill</button></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">📅</span> ${monthLabel(mk)} summary</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="val">${m.units}</div><div class="lbl">Units billed</div></div>
+      <div class="stat"><div class="val">${state.settings.currency}${fmt(m.amount)}</div><div class="lbl">Amount paid</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">🧾</span> Bill history</h2>
+    <div class="list">
+      ${bills.length? bills.map(b=>`
+        <div class="list-item">
+          <span>${b.date}<br><span class="meta">${b.units||0} kWh${b.dueDate?(' · due '+b.dueDate):''}</span></span>
+          <span class="amt">${state.settings.currency}${fmt(b.amount)}
+            <button class="small ghost" style="margin-left:8px" onclick="deletePower('${b.id}')">✕</button>
+          </span>
+        </div>`).join('') : '<div class="empty">No bills logged yet.</div>'}
+    </div>
+  </div>
+  `;
+}
+function addPowerEntry(){
+  const d = document.getElementById('eDate').value || todayStr();
+  const u = document.getElementById('eUnits').value;
+  const a = document.getElementById('eAmount').value;
+  const due = document.getElementById('eDue').value;
+  if(a===''){ toast('Enter amount paid'); return; }
+  state.electricity.push({id:'e'+Date.now(), date:d, units:Number(u)||0, amount:Number(a)||0, dueDate:due||null});
+  save(); toast('Bill saved'); render();
+}
+function deletePower(id){ state.electricity = state.electricity.filter(e=>e.id!==id); save(); render(); }
+
+/* ---------- REPORTS ---------- */
+let reportMonth = monthKeyOf(todayStr());
+function reportsTab(){
+  const mk = reportMonth;
+  const mMilk = milkMonthly(mk);
+  const mPaper = newspaperMonthly(mk);
+  const mPower = electricityMonthly(mk);
+  const total = mMilk.amount + mPaper.amount + mPower.amount;
+  const months = last6Months();
+  const totals = months.map(mo=> milkMonthly(mo).amount + newspaperMonthly(mo).amount + electricityMonthly(mo).amount);
+  const maxT = Math.max(1, ...totals);
+
+  return `
+  <div class="card">
+    <h2><span class="icn">📒</span> Monthly report</h2>
+    <div class="row"><input type="month" id="repMonth" value="${mk}" onchange="reportMonth=this.value; render();" style="max-width:180px"></div>
+    <div class="list" style="margin-top:10px;">
+      <div class="list-item"><span>🥛 Milk — ${mMilk.liters} L</span><span class="amt">${state.settings.currency}${fmt(mMilk.amount)}</span></div>
+      <div class="list-item"><span>📰 Newspaper — ${mPaper.days} days</span><span class="amt">${state.settings.currency}${fmt(mPaper.amount)}</span></div>
+      <div class="list-item"><span>⚡ Electricity — ${mPower.units} kWh</span><span class="amt">${state.settings.currency}${fmt(mPower.amount)}</span></div>
+      <div class="list-item" style="font-weight:700;"><span>Total household spend</span><span class="amt">${state.settings.currency}${fmt(total)}</span></div>
+    </div>
+    <button class="ghost" style="margin-top:10px" onclick="copyReport()">Copy summary as text</button>
+    <div class="copybox" id="repCopyBox" style="display:none"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">📈</span> Last 6 months</h2>
+    ${months.map((mo,i)=>`
+      <div class="bar-row">
+        <span class="mlabel">${monthLabel(mo).split(' ')[0]}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${(totals[i]/maxT*100).toFixed(0)}%"></div></div>
+        <span class="bar-amt">${state.settings.currency}${fmt(totals[i])}</span>
+      </div>`).join('')}
+  </div>
+  `;
+}
+function copyReport(){
+  const mk = reportMonth;
+  const mMilk = milkMonthly(mk);
+  const mPaper = newspaperMonthly(mk);
+  const mPower = electricityMonthly(mk);
+  const total = mMilk.amount + mPaper.amount + mPower.amount;
+  const txt = `Household report — ${monthLabel(mk)}
+Milk: ${mMilk.liters} L → ${state.settings.currency}${fmt(mMilk.amount)}
+Newspaper: ${mPaper.days} days → ${state.settings.currency}${fmt(mPaper.amount)}
+Electricity: ${mPower.units} kWh → ${state.settings.currency}${fmt(mPower.amount)}
+Total: ${state.settings.currency}${fmt(total)}`;
+  const box = document.getElementById('repCopyBox');
+  box.style.display='block';
+  box.textContent = txt;
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(txt).then(()=>toast('Copied to clipboard')).catch(()=>toast('Shown below — copy manually'));
+  } else {
+    toast('Shown below — copy manually');
+  }
+}
+
+/* ---------- SETTINGS (reachable via gear in home header area) ---------- */
+function settingsView(){
+  const s = state.settings;
+  return `
+  <div class="card">
+    <h2><span class="icn">⚙️</span> Settings</h2>
+    <div class="settings-grp">
+      <label>Household name</label>
+      <input id="sName" value="${s.householdName}">
+    </div>
+    <div class="settings-grp row">
+      <div style="flex:1"><label>Currency symbol</label><input id="sCur" value="${s.currency}"></div>
+      <div style="flex:1"><label>Milk price / litre</label><input type="number" id="sMilk" value="${s.milkPrice}"></div>
+    </div>
+    <div class="settings-grp row">
+      <div style="flex:1"><label>Newspaper — weekday (Mon–Fri) price</label><input type="number" step="0.5" id="sPaperWd" value="${s.newspaperWeekdayPrice}"></div>
+      <div style="flex:1"><label>Newspaper — weekend (Sat–Sun) price</label><input type="number" step="0.5" id="sPaperWe" value="${s.newspaperWeekendPrice}"></div>
+    </div>
+    <div class="settings-grp row">
+      <div style="flex:1"><label>Default gas cylinder cost</label><input type="number" id="sGas" value="${s.gasPrice}"></div>
+      <div style="flex:1"><label>Cylinder capacity (kg)</label><input type="number" id="sGasKg" value="${s.gasCapacityKg}"></div>
+    </div>
+    <p style="font-size:11.5px; color:var(--ink-soft); margin:6px 0 0;">Gas price is also editable per refill on the Gas tab, since it changes over time — the value here is just the default that pre-fills the form.</p>
+    <button onclick="saveSettings()" style="margin-top:10px">Save settings</button>
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">💾</span> Backup &amp; restore</h2>
+    <p style="font-size:12.5px; color:var(--ink-soft); margin-top:0;">Your data lives only on this device's browser. Export a backup regularly, or to move data to another phone/browser.</p>
+    <div class="row">
+      <button class="ghost" onclick="exportData()">Export backup (.json)</button>
+      <button class="ghost" onclick="document.getElementById('importFile').click()">Import backup</button>
+    </div>
+    <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importData(event)">
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">📗</span> Google Sheets sync</h2>
+    <p style="font-size:12.5px; color:var(--ink-soft); margin-top:0;">
+      Optional — connect a free Google Apps Script "Web App" bound to your own
+      Sheet, so your data can live in Sheets and sync across devices.
+      See <b>SHEETS-SETUP.md</b> in the download for the one-time setup
+      (create a Sheet, paste in a script, deploy it, copy the URL here).
+    </p>
+    <div class="settings-grp">
+      <label>Web App URL</label>
+      <input id="sSheetUrl" value="${s.sheetUrl}" placeholder="https://script.google.com/macros/s/.../exec">
+    </div>
+    <div class="settings-grp">
+      <label>Access token (set the same value in the script)</label>
+      <input id="sSheetToken" value="${s.sheetToken}" placeholder="choose any private word/phrase">
+    </div>
+    <button onclick="saveSheetSettings()">Save connection</button>
+    <div class="row" style="margin-top:10px;">
+      <button class="ghost" onclick="pushToSheet()" id="btnPush">⬆ Push device data to Sheet</button>
+      <button class="ghost" onclick="pullFromSheet()" id="btnPull">⬇ Pull Sheet data to device</button>
+    </div>
+    <p style="font-size:11.5px; color:var(--ink-soft); margin:8px 0 0;">
+      Push overwrites the Sheet with what's on this device. Pull overwrites
+      this device with what's in the Sheet. Do one or the other deliberately —
+      there's no automatic merge, so avoid editing both at once.
+    </p>
+    <div id="syncStatus" style="font-size:12px; margin-top:8px; color:var(--ink-soft);"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icn">🗑️</span> Reset</h2>
+    <button class="danger" onclick="resetAll()">Erase all data on this device</button>
+  </div>
+  `;
+}
+function saveSettings(){
+  state.settings.householdName = document.getElementById('sName').value || 'My Household';
+  state.settings.currency = document.getElementById('sCur').value || '₹';
+  state.settings.milkPrice = Number(document.getElementById('sMilk').value)||0;
+  state.settings.newspaperWeekdayPrice = Number(document.getElementById('sPaperWd').value)||0;
+  state.settings.newspaperWeekendPrice = Number(document.getElementById('sPaperWe').value)||0;
+  state.settings.gasPrice = Number(document.getElementById('sGas').value)||0;
+  state.settings.gasCapacityKg = Number(document.getElementById('sGasKg').value)||0;
+  save(); toast('Settings saved'); setTab('home');
+}
+function saveSheetSettings(){
+  state.settings.sheetUrl = document.getElementById('sSheetUrl').value.trim();
+  state.settings.sheetToken = document.getElementById('sSheetToken').value.trim();
+  save(); toast('Sync connection saved');
+}
+
+/* ---------- Google Sheets sync ---------- */
+function syncStatusMsg(msg, isError){
+  const el = document.getElementById('syncStatus');
+  if(el){ el.textContent = msg; el.style.color = isError ? 'var(--stamp-red)' : 'var(--ink-soft)'; }
+}
+async function pushToSheet(){
+  const url = state.settings.sheetUrl;
+  if(!url){ toast('Add your Web App URL first'); return; }
+  syncStatusMsg('Pushing…');
+  try{
+    const res = await fetch(url, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'}, // avoids CORS preflight on Apps Script
+      body: JSON.stringify({ action:'saveAll', token: state.settings.sheetToken, data: state })
+    });
+    const j = await res.json();
+    if(j.ok){ syncStatusMsg('Pushed to Sheet · ' + new Date().toLocaleTimeString('en-IN')); toast('Pushed to Sheet'); }
+    else { syncStatusMsg('Push failed: ' + (j.error||'unknown error'), true); }
+  }catch(e){
+    syncStatusMsg('Push failed — check the URL and your internet connection.', true);
+  }
+}
+async function pullFromSheet(){
+  const url = state.settings.sheetUrl;
+  if(!url){ toast('Add your Web App URL first'); return; }
+  if(!confirm('This will replace all data on this device with what is in the Sheet. Continue?')) return;
+  syncStatusMsg('Pulling…');
+  try{
+    const sep = url.includes('?') ? '&' : '?';
+    const res = await fetch(`${url}${sep}action=getAll&token=${encodeURIComponent(state.settings.sheetToken)}`);
+    const j = await res.json();
+    if(j.ok){
+      const keepUrl = state.settings.sheetUrl, keepToken = state.settings.sheetToken;
+      state = {...defaultState(), ...j.data};
+      state.settings.sheetUrl = keepUrl;
+      state.settings.sheetToken = keepToken;
+      save();
+      syncStatusMsg('Pulled from Sheet · ' + new Date().toLocaleTimeString('en-IN'));
+      toast('Pulled from Sheet');
+      setTab('home');
+    } else {
+      syncStatusMsg('Pull failed: ' + (j.error||'unknown error'), true);
+    }
+  }catch(e){
+    syncStatusMsg('Pull failed — check the URL and your internet connection.', true);
+  }
+}
+function exportData(){
+  const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ghar-khata-backup-${todayStr()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Backup downloaded');
+}
+function importData(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      state = {...defaultState(), ...parsed};
+      save(); toast('Backup restored'); setTab('home');
+    }catch(e){ toast('Invalid backup file'); }
+  };
+  reader.readAsText(file);
+}
+function resetAll(){
+  if(confirm('This will permanently erase all entries on this device. Continue?')){
+    state = defaultState();
+    save(); toast('All data erased'); setTab('home');
+  }
+}
+
+/* ---------- Settings tab ---------- */
+TABS.push({id:'settings', label:'Setup', icon:'⚙️'});
+const renderTab_orig = renderTab;
+renderTab = function(){
+  if(activeTab==='settings') return settingsView();
+  return renderTab_orig();
+};
+
+/* ---------- Init ---------- */
+render();
+
+/* ---------- Service worker registration ---------- */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(()=>{/* offline caching unavailable, app still works */});
+  });
+}
+</script>
+</body>
+</html>
