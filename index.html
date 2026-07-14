@@ -226,6 +226,23 @@
     line-height:1.5;
   }
   select{-webkit-appearance:none; appearance:none;}
+  .chip-row{display:flex; flex-wrap:wrap; gap:7px; margin-bottom:8px;}
+  .chip{
+    background:var(--paper);
+    border:1.5px solid var(--rule);
+    color:var(--ink-soft);
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:600;
+    font-size:12.5px;
+    padding:7px 12px;
+    border-radius:20px;
+    cursor:pointer;
+  }
+  .chip.active{
+    background:var(--ink);
+    border-color:var(--ink);
+    color:var(--paper);
+  }
   .datefield{position:relative;}
   .date-disp{
     font-family:'IBM Plex Mono', monospace;
@@ -276,6 +293,32 @@ const monthLabel = (mk) => {
   return new Date(y, m-1, 1).toLocaleDateString('en-IN', {month:'short', year:'numeric'});
 };
 const fmt = (n) => (Math.round(n*100)/100).toLocaleString('en-IN');
+function fmtMilkQty(liters){
+  const n = Number(liters)||0;
+  if(n < 1) return Math.round(n*1000) + ' ml';
+  return n + ' L';
+}
+const MILK_QUICK_OPTIONS = [0.25, 0.5, 0.75, 1, 1.5]; // litres — shown as ml below 1L
+function milkChipsHtml(inputId, currentVal){
+  const cur = currentVal===''||currentVal===undefined||currentVal===null ? null : Number(currentVal);
+  return `<div class="chip-row">
+    ${MILK_QUICK_OPTIONS.map(v=>{
+      const label = v<1 ? (v*1000)+' ml' : v+' L';
+      const active = cur===v ? 'active' : '';
+      return `<button type="button" class="chip ${active}" onclick="setMilkQty(this,'${inputId}',${v})">${label}</button>`;
+    }).join('')}
+    <button type="button" class="chip" onclick="clearMilkQty(this,'${inputId}')">None</button>
+  </div>`;
+}
+function setMilkQty(btn, inputId, val){
+  document.getElementById(inputId).value = val;
+  btn.parentElement.querySelectorAll('.chip').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function clearMilkQty(btn, inputId){
+  document.getElementById(inputId).value = '';
+  btn.parentElement.querySelectorAll('.chip').forEach(b=>b.classList.remove('active'));
+}
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function formatDisplayDate(dateStr){
@@ -403,15 +446,34 @@ function fmtDate(dateStr){
 function newspaperPriceForDate(dateStr){
   return isWeekend(dateStr) ? state.settings.newspaperWeekendPrice : state.settings.newspaperWeekdayPrice;
 }
+/* Newspaper entries can be a plain boolean (old data) or an object
+   {delivered, reason} (new data, since we now record why a day was missed). */
+function npEntry(v){
+  if(v && typeof v==='object') return {delivered: !!v.delivered, reason: v.reason||''};
+  return {delivered: !!v, reason: ''};
+}
 function newspaperMonthly(mk){
   let days=0, amount=0;
   for(const [d,v] of Object.entries(state.newspaper)){
-    if(monthKeyOf(d)===mk && v){
+    if(monthKeyOf(d)===mk && npEntry(v).delivered){
       days++;
       amount += newspaperPriceForDate(d);
     }
   }
   return {days, amount};
+}
+/* Paid tracking can be a plain boolean (old data) or an object
+   {paid, generatedDate, paidDate} (new data). */
+function paidInfo(cat, mk){
+  const v = state.paid[cat] ? state.paid[cat][mk] : undefined;
+  if(v && typeof v==='object') return {paid: !!v.paid, generatedDate: v.generatedDate||null, paidDate: v.paidDate||null};
+  return {paid: !!v, generatedDate: null, paidDate: null};
+}
+function setPaidField(cat, mk, field, value){
+  const cur = paidInfo(cat, mk);
+  cur[field] = value;
+  state.paid[cat][mk] = cur;
+  save();
 }
 function electricityMonthly(mk){
   let units=0, amount=0;
@@ -517,7 +579,7 @@ function homeTab(){
   const mPower = electricityMonthly(mk);
   const today = todayStr();
   const milkToday = state.milk[today] ?? '';
-  const paperToday = !!state.newspaper[today];
+  const paperToday = npEntry(state.newspaper[today]).delivered;
 
   // reminders
   let alerts = '';
@@ -525,10 +587,10 @@ function homeTab(){
   else if(gs.status==='soon') alerts += `<div class="alert gold">⛽ Gas cylinder likely needed in ${gs.daysLeft} day(s) — around ${fmtDate(gs.predicted)}.</div>`;
 
   const prevMonth = prevMonthKey(mk);
-  if(milkMonthly(prevMonth).liters>0 && !state.paid.milk[prevMonth]){
+  if(milkMonthly(prevMonth).liters>0 && !paidInfo('milk',prevMonth).paid){
     alerts += `<div class="alert">🥛 Milkman payment for ${monthLabel(prevMonth)} still marked unpaid (${state.settings.currency}${fmt(milkMonthly(prevMonth).amount)}).</div>`;
   }
-  if(newspaperMonthly(prevMonth).days>0 && !state.paid.newspaper[prevMonth]){
+  if(newspaperMonthly(prevMonth).days>0 && !paidInfo('newspaper',prevMonth).paid){
     alerts += `<div class="alert">📰 Newspaper vendor payment for ${monthLabel(prevMonth)} still marked unpaid (${state.settings.currency}${fmt(newspaperMonthly(prevMonth).amount)}).</div>`;
   }
 
@@ -538,9 +600,12 @@ function homeTab(){
     <h2><span class="icn">✍️</span> Quick log — today</h2>
     <div class="row">
       <div style="flex:1">
-        <label>Milk delivered (litres)</label>
-        <input type="number" step="0.25" min="0" id="qMilk" value="${milkToday}" placeholder="e.g. 1.5">
+        <label>Milk delivered</label>
+        ${milkChipsHtml('qMilk', milkToday)}
+        <input type="number" step="0.05" min="0" id="qMilk" value="${milkToday}" placeholder="or type litres, e.g. 0.6">
       </div>
+    </div>
+    <div class="row" style="margin-top:8px; justify-content:flex-end;">
       <button onclick="quickSaveMilk()">Save</button>
     </div>
     <div class="row" style="margin-top:12px;">
@@ -558,7 +623,7 @@ function homeTab(){
   <div class="card">
     <h2><span class="icn">📊</span> This month so far — ${monthLabel(mk)}</h2>
     <div class="stat-grid">
-      <div class="stat"><div class="val">${mMilk.liters} L</div><div class="lbl">Milk · ${state.settings.currency}${fmt(mMilk.amount)}</div></div>
+      <div class="stat"><div class="val">${fmtMilkQty(mMilk.liters)}</div><div class="lbl">Milk · ${state.settings.currency}${fmt(mMilk.amount)}</div></div>
       <div class="stat"><div class="val">${mPaper.days}d</div><div class="lbl">Newspaper · ${state.settings.currency}${fmt(mPaper.amount)}</div></div>
       <div class="stat"><div class="val">${mPower.units||0}</div><div class="lbl">Units billed · ${state.settings.currency}${fmt(mPower.amount)}</div></div>
       <div class="stat"><div class="val">${gs.status==='none'?'—':gs.daysLeft+'d'}</div><div class="lbl">Gas · ${gs.status==='none'?'no data':('next ~'+fmtDate(gs.predicted))}</div></div>
@@ -582,33 +647,50 @@ function quickSaveMilk(){
 function quickSavePaper(){
   const v = document.getElementById('qPaper').value;
   const today = todayStr();
-  state.newspaper[today] = (v==='yes');
+  const existing = npEntry(state.newspaper[today]);
+  state.newspaper[today] = { delivered: (v==='yes'), reason: (v==='no' ? existing.reason : '') };
   save(); toast('Newspaper entry saved'); render();
 }
 
 /* ---------- MILK ---------- */
+let milkBillMonth = monthKeyOf(todayStr());
 function milkTab(){
   const entries = Object.entries(state.milk).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,20);
-  const mk = monthKeyOf(todayStr());
+  const mk = milkBillMonth;
   const m = milkMonthly(mk);
+  const info = paidInfo('milk', mk);
   return `
   <div class="card">
     <h2><span class="icn">🥛</span> Add / edit entry</h2>
     <div class="row">
       <div style="flex:1"><label>Date</label><input type="date" id="mDate" value="${todayStr()}"></div>
-      <div style="flex:1"><label>Litres</label><input type="number" step="0.25" min="0" id="mQty" placeholder="e.g. 1.5"></div>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div style="flex:1">
+        <label>Quantity</label>
+        ${milkChipsHtml('mQty', '')}
+        <input type="number" step="0.05" min="0" id="mQty" placeholder="or type litres, e.g. 0.6">
+      </div>
     </div>
     <div class="row" style="margin-top:10px;"><button onclick="addMilkEntry()">Save entry</button></div>
   </div>
 
   <div class="card">
-    <h2><span class="icn">📅</span> ${monthLabel(mk)} summary</h2>
-    <div class="stat-grid">
-      <div class="stat"><div class="val">${m.liters} L</div><div class="lbl">Total litres</div></div>
+    <h2><span class="icn">📅</span> Monthly bill</h2>
+    <div class="row"><input type="month" value="${mk}" onchange="milkBillMonth=this.value; render();" style="max-width:180px"></div>
+    <div class="stat-grid" style="margin-top:10px;">
+      <div class="stat"><div class="val">${fmtMilkQty(m.liters)}</div><div class="lbl">Total quantity</div></div>
       <div class="stat"><div class="val">${state.settings.currency}${fmt(m.amount)}</div><div class="lbl">Amount due @ ${state.settings.currency}${state.settings.milkPrice}/L</div></div>
     </div>
     <div class="row" style="margin-top:10px;">
-      <label class="paid-toggle"><input type="checkbox" ${state.paid.milk[mk]?'checked':''} onchange="togglePaid('milk','${mk}',this.checked)"> Marked paid to milkman for ${monthLabel(mk)}</label>
+      <button class="ghost" onclick="downloadMilkBill('${mk}')">⬇ Download / print bill</button>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <label class="paid-toggle"><input type="checkbox" ${info.paid?'checked':''} onchange="togglePaid('milk','${mk}',this.checked)"> Paid to milkman for ${monthLabel(mk)}</label>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div style="flex:1"><label>Bill generated on</label><input type="date" value="${info.generatedDate||''}" onchange="setPaidField('milk','${mk}','generatedDate',this.value); render();"></div>
+      <div style="flex:1"><label>Paid on</label><input type="date" value="${info.paidDate||''}" onchange="setPaidField('milk','${mk}','paidDate',this.value); render();"></div>
     </div>
   </div>
 
@@ -618,7 +700,7 @@ function milkTab(){
       ${entries.length? entries.map(([d,v])=>`
         <div class="list-item">
           <span>${fmtDate(d)}</span>
-          <span class="amt">${v} L
+          <span class="amt">${fmtMilkQty(v)}
             <button class="small ghost" style="margin-left:8px" onclick="deleteMilk('${d}')">✕</button>
           </span>
         </div>`).join('') : '<div class="empty">No entries yet — add your first one above.</div>'}
@@ -635,48 +717,70 @@ function addMilkEntry(){
 }
 function deleteMilk(d){ delete state.milk[d]; save(); render(); }
 function togglePaid(cat, mk, val){
-  state.paid[cat][mk] = val;
+  const cur = paidInfo(cat, mk);
+  cur.paid = val;
+  if(val && !cur.paidDate) cur.paidDate = todayStr(); // auto-fill, still editable after
+  state.paid[cat][mk] = cur;
   save(); toast(val? 'Marked as paid' : 'Marked as unpaid'); render();
 }
 
 /* ---------- NEWSPAPER ---------- */
+let paperBillMonth = monthKeyOf(todayStr());
 function paperTab(){
   const entries = Object.entries(state.newspaper).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,20);
-  const mk = monthKeyOf(todayStr());
+  const mk = paperBillMonth;
   const m = newspaperMonthly(mk);
+  const info = paidInfo('newspaper', mk);
   return `
   <div class="card">
     <h2><span class="icn">📰</span> Add / edit entry</h2>
     <div class="row">
       <div style="flex:1"><label>Date</label><input type="date" id="pDate" value="${todayStr()}"></div>
       <div style="flex:1"><label>Delivered?</label>
-        <select id="pVal"><option value="yes">Yes</option><option value="no">No</option></select>
+        <select id="pVal" onchange="document.getElementById('pReasonWrap').style.display=(this.value==='no'?'block':'none')">
+          <option value="yes">Yes</option><option value="no">No</option>
+        </select>
       </div>
+    </div>
+    <div class="row" id="pReasonWrap" style="display:none; margin-top:8px;">
+      <div style="flex:1"><label>Reason (holiday, vacation, etc.)</label><input type="text" id="pReason" placeholder="e.g. Diwali holiday"></div>
     </div>
     <div class="row" style="margin-top:10px;"><button onclick="addPaperEntry()">Save entry</button></div>
   </div>
 
   <div class="card">
-    <h2><span class="icn">📅</span> ${monthLabel(mk)} summary</h2>
-    <div class="stat-grid">
+    <h2><span class="icn">📅</span> Monthly bill</h2>
+    <div class="row"><input type="month" value="${mk}" onchange="paperBillMonth=this.value; render();" style="max-width:180px"></div>
+    <div class="stat-grid" style="margin-top:10px;">
       <div class="stat"><div class="val">${m.days} days</div><div class="lbl">Delivered</div></div>
-      <div class="stat"><div class="val">${state.settings.currency}${fmt(m.amount)}</div><div class="lbl">Amount due · weekday ${state.settings.currency}${state.settings.newspaperWeekdayPrice}, weekend ${state.settings.currency}${state.settings.newspaperWeekendPrice}</div></div>
+      <div class="stat"><div class="val">${state.settings.currency}${fmt(m.amount)}</div><div class="lbl">Amount · wkday ${state.settings.currency}${state.settings.newspaperWeekdayPrice}, wkend ${state.settings.currency}${state.settings.newspaperWeekendPrice}</div></div>
     </div>
     <div class="row" style="margin-top:10px;">
-      <label class="paid-toggle"><input type="checkbox" ${state.paid.newspaper[mk]?'checked':''} onchange="togglePaid('newspaper','${mk}',this.checked)"> Marked paid to vendor for ${monthLabel(mk)}</label>
+      <button class="ghost" onclick="downloadPaperBill('${mk}')">⬇ Download / print bill</button>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <label class="paid-toggle"><input type="checkbox" ${info.paid?'checked':''} onchange="togglePaid('newspaper','${mk}',this.checked)"> Paid to vendor for ${monthLabel(mk)}</label>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div style="flex:1"><label>Bill generated on</label><input type="date" value="${info.generatedDate||''}" onchange="setPaidField('newspaper','${mk}','generatedDate',this.value); render();"></div>
+      <div style="flex:1"><label>Paid on</label><input type="date" value="${info.paidDate||''}" onchange="setPaidField('newspaper','${mk}','paidDate',this.value); render();"></div>
     </div>
   </div>
 
   <div class="card">
     <h2><span class="icn">🧾</span> Recent entries</h2>
     <div class="list">
-      ${entries.length? entries.map(([d,v])=>`
+      ${entries.length? entries.map(([d,v])=>{
+        const e = npEntry(v);
+        const statusTxt = e.delivered ? 'Delivered' : ('Not delivered' + (e.reason? ' — '+e.reason : ''));
+        return `
         <div class="list-item">
-          <span>${fmtDate(d)} <span class="meta">${isWeekend(d)?'(weekend)':'(weekday)'}</span></span>
-          <span class="amt">${v? (state.settings.currency+fmt(newspaperPriceForDate(d))) : 'Missed'}
+          <span>${fmtDate(d)} <span class="meta">${isWeekend(d)?'(weekend)':'(weekday)'}<br>${statusTxt}</span></span>
+          <span class="amt">${e.delivered? (state.settings.currency+fmt(newspaperPriceForDate(d))) : '—'}
             <button class="small ghost" style="margin-left:8px" onclick="deletePaper('${d}')">✕</button>
           </span>
-        </div>`).join('') : '<div class="empty">No entries yet — add your first one above.</div>'}
+        </div>`;
+      }).join('') : '<div class="empty">No entries yet — add your first one above.</div>'}
     </div>
   </div>
   `;
@@ -684,7 +788,8 @@ function paperTab(){
 function addPaperEntry(){
   const d = document.getElementById('pDate').value || todayStr();
   const v = document.getElementById('pVal').value;
-  state.newspaper[d] = (v==='yes');
+  const reason = document.getElementById('pReason') ? document.getElementById('pReason').value.trim() : '';
+  state.newspaper[d] = { delivered: (v==='yes'), reason: (v==='no' ? reason : '') };
   save(); toast('Newspaper entry saved'); render();
 }
 function deletePaper(d){ delete state.newspaper[d]; save(); render(); }
@@ -848,6 +953,87 @@ Total: ${state.settings.currency}${fmt(total)}`;
   }
 }
 
+/* ---------- Bill generation (print-to-PDF, no external libraries) ---------- */
+const BILL_PRINT_CSS = `
+  * { box-sizing:border-box; }
+  body{ font-family:'IBM Plex Sans', Arial, sans-serif; color:#1E2A38; padding:32px; max-width:720px; margin:0 auto; }
+  h1{ font-size:20px; margin:0 0 2px; }
+  h2{ font-size:15px; font-weight:600; color:#51606D; margin:0 0 18px; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th, td{ border:1px solid #C7CFC0; padding:7px 9px; text-align:left; }
+  th{ background:#EEF1E6; }
+  td.num, th.num{ text-align:right; }
+  tfoot td{ font-weight:700; background:#F7F8F2; }
+  .meta{ font-size:12px; color:#51606D; margin-top:14px; }
+  .brand{ font-size:11px; color:#9AA6AC; margin-top:26px; border-top:1px dashed #C7CFC0; padding-top:10px; }
+  @media print{ body{ padding:0; } }
+`;
+function openPrintWindow(title, bodyHtml){
+  const w = window.open('', '_blank');
+  if(!w){ toast('Please allow pop-ups to view/print the bill'); return; }
+  w.document.open();
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>${BILL_PRINT_CSS}</style></head><body>${bodyHtml}<div class="brand">Generated by Ghar Khata</div></body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(()=>{ try{ w.print(); }catch(e){} }, 350);
+}
+function downloadMilkBill(mk){
+  const entries = Object.entries(state.milk)
+    .filter(([d]) => monthKeyOf(d)===mk)
+    .sort((a,b)=>a[0].localeCompare(b[0]));
+  const rate = state.settings.milkPrice;
+  let totalQty = 0, totalAmt = 0;
+  const rows = entries.map(([d,q],i)=>{
+    const qty = Number(q)||0;
+    const amt = qty*rate;
+    totalQty += qty; totalAmt += amt;
+    return `<tr><td>${i+1}</td><td>${fmtDate(d)}</td><td>${fmtMilkQty(qty)}</td><td class="num">${state.settings.currency}${fmt(rate)}</td><td class="num">${state.settings.currency}${fmt(amt)}</td></tr>`;
+  }).join('');
+  setPaidField('milk', mk, 'generatedDate', todayStr());
+  const info = paidInfo('milk', mk);
+  const html = `
+    <h1>${state.settings.householdName}</h1>
+    <h2>Milk Bill — ${monthLabel(mk)}</h2>
+    <table>
+      <thead><tr><th>Sl #</th><th>Date</th><th>Qty</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5">No entries this month</td></tr>'}</tbody>
+      <tfoot><tr><td colspan="2">Total</td><td>${fmtMilkQty(totalQty)}</td><td></td><td class="num">${state.settings.currency}${fmt(totalAmt)}</td></tr></tfoot>
+    </table>
+    <p class="meta">Bill generated: ${fmtDate(info.generatedDate)} &nbsp;·&nbsp; Payment status: ${info.paid ? ('Paid'+(info.paidDate?(' on '+fmtDate(info.paidDate)):'')) : 'Pending'}</p>
+  `;
+  render(); // refresh so the generated-date field on screen reflects the update
+  openPrintWindow(`Milk Bill — ${monthLabel(mk)}`, html);
+}
+function downloadPaperBill(mk){
+  const entries = Object.entries(state.newspaper)
+    .filter(([d]) => monthKeyOf(d)===mk)
+    .sort((a,b)=>a[0].localeCompare(b[0]));
+  let totalAmt = 0;
+  const rows = entries.map(([d,v],i)=>{
+    const e = npEntry(v);
+    const rate = newspaperPriceForDate(d);
+    const amt = e.delivered ? rate : 0;
+    totalAmt += amt;
+    const dayName = parseLocalDate(d).toLocaleDateString('en-IN', {weekday:'short'});
+    const status = e.delivered ? 'Delivered' : ('Not delivered' + (e.reason ? ' — '+e.reason : ''));
+    return `<tr><td>${i+1}</td><td>${fmtDate(d)} (${dayName})</td><td>${status}</td><td class="num">${state.settings.currency}${fmt(rate)}</td><td class="num">${state.settings.currency}${fmt(amt)}</td></tr>`;
+  }).join('');
+  setPaidField('newspaper', mk, 'generatedDate', todayStr());
+  const info = paidInfo('newspaper', mk);
+  const html = `
+    <h1>${state.settings.householdName}</h1>
+    <h2>Newspaper Bill — ${monthLabel(mk)}</h2>
+    <table>
+      <thead><tr><th>Sl #</th><th>Date (Day)</th><th>Delivery Status</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5">No entries this month</td></tr>'}</tbody>
+      <tfoot><tr><td colspan="4">Total</td><td class="num">${state.settings.currency}${fmt(totalAmt)}</td></tr></tfoot>
+    </table>
+    <p class="meta">Only logged days are listed above; unlogged days are not included. Bill generated: ${fmtDate(info.generatedDate)} &nbsp;·&nbsp; Payment status: ${info.paid ? ('Paid'+(info.paidDate?(' on '+fmtDate(info.paidDate)):'')) : 'Pending'}</p>
+  `;
+  render();
+  openPrintWindow(`Newspaper Bill — ${monthLabel(mk)}`, html);
+}
+
 /* ---------- SETTINGS (reachable via gear in home header area) ---------- */
 function settingsView(){
   const s = state.settings;
@@ -947,6 +1133,7 @@ async function pushToSheet(){
   try{
     const res = await fetch(url, {
       method:'POST',
+      cache:'no-store',
       headers:{'Content-Type':'text/plain;charset=utf-8'}, // avoids CORS preflight on Apps Script
       body: JSON.stringify({ action:'saveAll', token: state.settings.sheetToken, data: state })
     });
@@ -964,7 +1151,11 @@ async function pullFromSheet(){
   syncStatusMsg('Pulling…');
   try{
     const sep = url.includes('?') ? '&' : '?';
-    const res = await fetch(`${url}${sep}action=getAll&token=${encodeURIComponent(state.settings.sheetToken)}`);
+    // cache-busting param + no-store: guarantees a fresh fetch even if any
+    // intermediate cache (browser, service worker, proxy) tries to reuse
+    // a previous response for this same URL.
+    const bust = Date.now();
+    const res = await fetch(`${url}${sep}action=getAll&token=${encodeURIComponent(state.settings.sheetToken)}&_=${bust}`, {cache:'no-store'});
     const j = await res.json();
     if(j.ok){
       const keepUrl = state.settings.sheetUrl, keepToken = state.settings.sheetToken;

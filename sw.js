@@ -24,6 +24,16 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+
+  // Never cache cross-origin requests (e.g. the Google Sheets sync API).
+  // These must always go to the network so Pull/Push reflect the latest
+  // data — caching them was causing stale data to be served forever.
+  if (url.origin !== self.location.origin) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   // network-first for navigation so updates are picked up, fallback to cache when offline
   if (event.request.mode === 'navigate') {
     event.respondWith(
