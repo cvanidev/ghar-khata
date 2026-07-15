@@ -369,13 +369,15 @@ function defaultState(){
       householdName: 'My Household',
       dateFormat: 'text',
       sheetUrl: '',
-      sheetToken: ''
+      sheetToken: '',
+      liveSync: true
     },
     milk: {},        // 'YYYY-MM-DD': liters
     newspaper: {},   // 'YYYY-MM-DD': true
     gas: [],         // {id,date,cost,kg}
     electricity: [], // {id,date,units,amount,dueDate,paid}
-    paid: { milk:{}, newspaper:{} } // 'YYYY-MM': true
+    paid: { milk:{}, newspaper:{} }, // 'YYYY-MM': true
+    pendingSync: []  // [{action, payload}] — changes not yet confirmed on the Sheet
   };
 }
 
@@ -391,7 +393,8 @@ function loadState(){
       newspaper: parsed.newspaper || {},
       gas: parsed.gas || [],
       electricity: parsed.electricity || [],
-      paid: {milk:{...(parsed.paid?.milk||{})}, newspaper:{...(parsed.paid?.newspaper||{})}}
+      paid: {milk:{...(parsed.paid?.milk||{})}, newspaper:{...(parsed.paid?.newspaper||{})}},
+      pendingSync: parsed.pendingSync || []
     };
   }catch(e){
     console.error('Load failed, starting fresh', e);
@@ -474,6 +477,7 @@ function setPaidField(cat, mk, field, value){
   cur[field] = value;
   state.paid[cat][mk] = cur;
   save();
+  queueOrSend('upsertPaid', {category:cat, monthKey:mk, paid:cur.paid, generatedDate:cur.generatedDate, paidDate:cur.paidDate});
 }
 function electricityMonthly(mk){
   let units=0, amount=0;
@@ -528,7 +532,15 @@ const TABS = [
   {id:'reports', label:'Reports', icon:'📒'},
 ];
 
-function setTab(id){ activeTab = id; render(); }
+function setTab(id){
+  activeTab = id;
+  render();
+  if(liveSyncEnabled()){
+    refreshFromServer().then(()=>{
+      if(activeTab === id) render(); // only redraw if still on the same tab
+    });
+  }
+}
 
 function render(){
   const app = document.getElementById('app');
@@ -537,6 +549,7 @@ function render(){
     <main>${renderTab()}</main>
     ${navHtml()}
   `;
+  renderSyncBadge();
 }
 
 function headerHtml(){
@@ -545,6 +558,7 @@ function headerHtml(){
   <header class="top">
     <h1>Ghar Khata</h1>
     <div class="sub">${state.settings.householdName} · household ledger</div>
+    ${liveSyncEnabled() ? `<div class="sub" id="syncBadge" style="margin-top:2px; font-size:11px;"></div>` : ''}
     <div class="today">${d.toLocaleDateString('en-IN',{weekday:'short', day:'numeric', month:'short'})}</div>
   </header>`;
 }
@@ -641,7 +655,8 @@ function prevMonthKey(mk){
 function quickSaveMilk(){
   const v = document.getElementById('qMilk').value;
   const today = todayStr();
-  if(v===''){ delete state.milk[today]; } else { state.milk[today]=Number(v); }
+  if(v===''){ delete state.milk[today]; queueOrSend('deleteMilk', {date:today}); }
+  else { state.milk[today]=Number(v); queueOrSend('upsertMilk', {date:today, litres:state.milk[today]}); }
   save(); toast('Milk entry saved'); render();
 }
 function quickSavePaper(){
@@ -650,6 +665,7 @@ function quickSavePaper(){
   const existing = npEntry(state.newspaper[today]);
   state.newspaper[today] = { delivered: (v==='yes'), reason: (v==='no' ? existing.reason : '') };
   save(); toast('Newspaper entry saved'); render();
+  queueOrSend('upsertNewspaper', {date:today, delivered:state.newspaper[today].delivered, reason:state.newspaper[today].reason});
 }
 
 /* ---------- MILK ---------- */
@@ -714,14 +730,16 @@ function addMilkEntry(){
   if(q===''){ toast('Enter litres'); return; }
   state.milk[d] = Number(q);
   save(); toast('Milk entry saved'); render();
+  queueOrSend('upsertMilk', {date:d, litres:state.milk[d]});
 }
-function deleteMilk(d){ delete state.milk[d]; save(); render(); }
+function deleteMilk(d){ delete state.milk[d]; save(); render(); queueOrSend('deleteMilk', {date:d}); }
 function togglePaid(cat, mk, val){
   const cur = paidInfo(cat, mk);
   cur.paid = val;
   if(val && !cur.paidDate) cur.paidDate = todayStr(); // auto-fill, still editable after
   state.paid[cat][mk] = cur;
   save(); toast(val? 'Marked as paid' : 'Marked as unpaid'); render();
+  queueOrSend('upsertPaid', {category:cat, monthKey:mk, paid:cur.paid, generatedDate:cur.generatedDate, paidDate:cur.paidDate});
 }
 
 /* ---------- NEWSPAPER ---------- */
@@ -791,8 +809,9 @@ function addPaperEntry(){
   const reason = document.getElementById('pReason') ? document.getElementById('pReason').value.trim() : '';
   state.newspaper[d] = { delivered: (v==='yes'), reason: (v==='no' ? reason : '') };
   save(); toast('Newspaper entry saved'); render();
+  queueOrSend('upsertNewspaper', {date:d, delivered:state.newspaper[d].delivered, reason:state.newspaper[d].reason});
 }
-function deletePaper(d){ delete state.newspaper[d]; save(); render(); }
+function deletePaper(d){ delete state.newspaper[d]; save(); render(); queueOrSend('deleteNewspaper', {date:d}); }
 
 /* ---------- GAS ---------- */
 function gasTab(){
@@ -838,10 +857,12 @@ function gasTab(){
 function addGasEntry(){
   const d = document.getElementById('gDate').value || todayStr();
   const c = document.getElementById('gCost').value;
-  state.gas.push({id: 'g'+Date.now(), date:d, cost:Number(c)||0});
+  const entry = {id: 'g'+Date.now(), date:d, cost:Number(c)||0};
+  state.gas.push(entry);
   save(); toast('Refill logged'); render();
+  queueOrSend('upsertGas', entry);
 }
-function deleteGas(id){ state.gas = state.gas.filter(g=>g.id!==id); save(); render(); }
+function deleteGas(id){ state.gas = state.gas.filter(g=>g.id!==id); save(); render(); queueOrSend('deleteGas', {id}); }
 
 /* ---------- ELECTRICITY ---------- */
 function powerTab(){
@@ -890,10 +911,12 @@ function addPowerEntry(){
   const a = document.getElementById('eAmount').value;
   const due = document.getElementById('eDue').value;
   if(a===''){ toast('Enter amount paid'); return; }
-  state.electricity.push({id:'e'+Date.now(), date:d, units:Number(u)||0, amount:Number(a)||0, dueDate:due||null});
+  const entry = {id:'e'+Date.now(), date:d, units:Number(u)||0, amount:Number(a)||0, dueDate:due||null};
+  state.electricity.push(entry);
   save(); toast('Bill saved'); render();
+  queueOrSend('upsertElectricity', entry);
 }
-function deletePower(id){ state.electricity = state.electricity.filter(e=>e.id!==id); save(); render(); }
+function deletePower(id){ state.electricity = state.electricity.filter(e=>e.id!==id); save(); render(); queueOrSend('deleteElectricity', {id}); }
 
 /* ---------- REPORTS ---------- */
 let reportMonth = monthKeyOf(todayStr());
@@ -1074,7 +1097,9 @@ function settingsView(){
     <h2><span class="icn">📗</span> Google Sheets sync</h2>
     <p style="font-size:12.5px; color:var(--ink-soft); margin-top:0;">
       Optional — connect a free Google Apps Script "Web App" bound to your own
-      Sheet, so your data can live in Sheets and sync across devices.
+      Sheet. Once connected, every add/edit/delete syncs automatically —
+      no manual push/pull needed. Any device connected to the same Sheet
+      sees the same data.
       See <b>SHEETS-SETUP.md</b> in the download for the one-time setup
       (create a Sheet, paste in a script, deploy it, copy the URL here).
     </p>
@@ -1086,17 +1111,28 @@ function settingsView(){
       <label>Access token (set the same value in the script)</label>
       <input id="sSheetToken" value="${s.sheetToken}" placeholder="choose any private word/phrase">
     </div>
-    <button onclick="saveSheetSettings()">Save connection</button>
-    <div class="row" style="margin-top:10px;">
-      <button class="ghost" onclick="pushToSheet()" id="btnPush">⬆ Push device data to Sheet</button>
-      <button class="ghost" onclick="pullFromSheet()" id="btnPull">⬇ Pull Sheet data to device</button>
+    <div class="settings-grp">
+      <label class="paid-toggle"><input type="checkbox" id="sLiveSync" ${s.liveSync?'checked':''}> Live sync (automatic — recommended)</label>
     </div>
-    <p style="font-size:11.5px; color:var(--ink-soft); margin:8px 0 0;">
-      Push overwrites the Sheet with what's on this device. Pull overwrites
-      this device with what's in the Sheet. Do one or the other deliberately —
-      there's no automatic merge, so avoid editing both at once.
-    </p>
-    <div id="syncStatus" style="font-size:12px; margin-top:8px; color:var(--ink-soft);"></div>
+    <button onclick="saveSheetSettings()">Save connection</button>
+
+    <div style="margin-top:14px; padding-top:12px; border-top:1px dashed var(--rule);">
+      <button class="ghost" onclick="manualSyncNow()">🔄 Sync now</button>
+      <div id="syncStatus" style="font-size:12px; margin-top:8px; color:var(--ink-soft);">
+        ${state.pendingSync.length ? state.pendingSync.length+' change(s) waiting to sync' : (lastSync ? (lastSync.ok?'Last synced '+lastSync.time.toLocaleTimeString('en-IN'):'Last sync attempt failed') : 'Not synced yet')}
+      </div>
+    </div>
+
+    <div style="margin-top:14px; padding-top:12px; border-top:1px dashed var(--rule);">
+      <p style="font-size:11.5px; color:var(--ink-soft); margin:0 0 8px;">
+        Full backup/restore — a manual fallback, useful the first time you
+        connect a Sheet, or to recover if live sync ever gets out of step.
+      </p>
+      <div class="row">
+        <button class="ghost" onclick="pushToSheet()" id="btnPush">⬆ Full backup to Sheet</button>
+        <button class="ghost" onclick="pullFromSheet()" id="btnPull">⬇ Full restore from Sheet</button>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -1114,11 +1150,21 @@ function saveSettings(){
   state.settings.gasPrice = Number(document.getElementById('sGas').value)||0;
   state.settings.gasCapacityKg = Number(document.getElementById('sGasKg').value)||0;
   save(); toast('Settings saved'); setTab('home');
+  queueOrSend('saveSettings', {...state.settings, sheetUrl:undefined, sheetToken:undefined});
 }
 function saveSheetSettings(){
   state.settings.sheetUrl = document.getElementById('sSheetUrl').value.trim();
   state.settings.sheetToken = document.getElementById('sSheetToken').value.trim();
-  save(); toast('Sync connection saved');
+  state.settings.liveSync = document.getElementById('sLiveSync').checked;
+  save(); toast('Sync connection saved'); render();
+  if(liveSyncEnabled()){ refreshFromServer().then(()=>render()); }
+}
+async function manualSyncNow(){
+  if(!state.settings.sheetUrl){ toast('Add your Web App URL first'); return; }
+  syncStatusMsg('Syncing…');
+  await performRefresh();
+  toast(lastSync && lastSync.ok ? 'Synced' : 'Sync failed — check your connection');
+  render();
 }
 
 /* ---------- Google Sheets sync ---------- */
@@ -1126,51 +1172,147 @@ function syncStatusMsg(msg, isError){
   const el = document.getElementById('syncStatus');
   if(el){ el.textContent = msg; el.style.color = isError ? 'var(--stamp-red)' : 'var(--ink-soft)'; }
 }
-async function pushToSheet(){
-  const url = state.settings.sheetUrl;
-  if(!url){ toast('Add your Web App URL first'); return; }
-  syncStatusMsg('Pushing…');
+function liveSyncEnabled(){
+  return !!(state.settings.sheetUrl && state.settings.sheetToken && state.settings.liveSync);
+}
+let lastSync = null; // {ok:boolean, time:Date}
+function markSync(ok){ lastSync = {ok, time:new Date()}; }
+
+/* Generic call to the Apps Script backend. Always POST + no-store so
+   nothing (browser, service worker) ever caches a stale response. */
+async function apiCall(action, payload){
+  if(!state.settings.sheetUrl) return {ok:false, error:'not configured'};
   try{
-    const res = await fetch(url, {
+    const res = await fetch(state.settings.sheetUrl, {
       method:'POST',
       cache:'no-store',
       headers:{'Content-Type':'text/plain;charset=utf-8'}, // avoids CORS preflight on Apps Script
+      body: JSON.stringify({ action, token: state.settings.sheetToken, payload })
+    });
+    return await res.json();
+  }catch(e){
+    return {ok:false, error:'network'};
+  }
+}
+
+/* Every mutation goes through here: queue it (so it survives a reload if
+   the network call fails), then try to send it immediately. */
+async function queueOrSend(action, payload){
+  if(!liveSyncEnabled()) return;
+  state.pendingSync.push({action, payload});
+  save();
+  await flushPendingSync();
+}
+let flushing = false;
+async function flushPendingSync(){
+  if(!liveSyncEnabled() || flushing) return;
+  flushing = true;
+  try{
+    while(state.pendingSync.length){
+      const item = state.pendingSync[0];
+      const r = await apiCall(item.action, item.payload);
+      if(r && r.ok){
+        state.pendingSync.shift();
+        save();
+        markSync(true);
+      } else {
+        markSync(false);
+        break; // stop here, we'll retry from the top next time
+      }
+    }
+  } finally {
+    flushing = false;
+    renderSyncBadge();
+  }
+}
+/* Silent background refresh — pulls the latest Sheet data down without
+   the confirm dialog or toast that the manual "Full restore" button uses,
+   so other devices' changes just appear. */
+async function refreshFromServer(){
+  if(!liveSyncEnabled()) return;
+  await performRefresh();
+}
+async function performRefresh(){
+  if(!state.settings.sheetUrl) return;
+  await flushPendingSync(); // send our own pending changes first (no-op if live sync is off)
+  const r = await apiCall('getAll', {});
+  if(r && r.ok){
+    const keep = {
+      sheetUrl: state.settings.sheetUrl,
+      sheetToken: state.settings.sheetToken,
+      liveSync: state.settings.liveSync
+    };
+    const pending = state.pendingSync; // preserve anything still unsent
+    state = {...defaultState(), ...r.data};
+    Object.assign(state.settings, keep);
+    state.pendingSync = pending;
+    save();
+    markSync(true);
+  } else {
+    markSync(false);
+  }
+  renderSyncBadge();
+}
+function renderSyncBadge(){
+  const el = document.getElementById('syncBadge');
+  if(!el) return;
+  if(!liveSyncEnabled()){ el.textContent = ''; return; }
+  if(state.pendingSync.length){
+    el.textContent = `⏳ ${state.pendingSync.length} change(s) syncing…`;
+  } else if(lastSync){
+    el.textContent = lastSync.ok
+      ? `☁ synced · ${lastSync.time.toLocaleTimeString('en-IN')}`
+      : `⚠ sync issue — will retry`;
+  } else {
+    el.textContent = '☁ connecting…';
+  }
+}
+
+async function pushToSheet(){
+  const url = state.settings.sheetUrl;
+  if(!url){ toast('Add your Web App URL first'); return; }
+  syncStatusMsg('Backing up…');
+  try{
+    const res = await fetch(url, {
+      method:'POST', cache:'no-store',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify({ action:'saveAll', token: state.settings.sheetToken, data: state })
     });
     const j = await res.json();
-    if(j.ok){ syncStatusMsg('Pushed to Sheet · ' + new Date().toLocaleTimeString('en-IN')); toast('Pushed to Sheet'); }
-    else { syncStatusMsg('Push failed: ' + (j.error||'unknown error'), true); }
+    if(j.ok){ syncStatusMsg('Full backup done · ' + new Date().toLocaleTimeString('en-IN')); toast('Backed up to Sheet'); }
+    else { syncStatusMsg('Backup failed: ' + (j.error||'unknown error'), true); }
   }catch(e){
-    syncStatusMsg('Push failed — check the URL and your internet connection.', true);
+    syncStatusMsg('Backup failed — check the URL and your internet connection.', true);
   }
 }
 async function pullFromSheet(){
   const url = state.settings.sheetUrl;
   if(!url){ toast('Add your Web App URL first'); return; }
   if(!confirm('This will replace all data on this device with what is in the Sheet. Continue?')) return;
-  syncStatusMsg('Pulling…');
+  syncStatusMsg('Restoring…');
   try{
-    const sep = url.includes('?') ? '&' : '?';
-    // cache-busting param + no-store: guarantees a fresh fetch even if any
-    // intermediate cache (browser, service worker, proxy) tries to reuse
-    // a previous response for this same URL.
     const bust = Date.now();
-    const res = await fetch(`${url}${sep}action=getAll&token=${encodeURIComponent(state.settings.sheetToken)}&_=${bust}`, {cache:'no-store'});
+    const res = await fetch(url, {
+      method:'POST', cache:'no-store',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ action:'getAll', token: state.settings.sheetToken, _:bust })
+    });
     const j = await res.json();
     if(j.ok){
-      const keepUrl = state.settings.sheetUrl, keepToken = state.settings.sheetToken;
+      const keepUrl = state.settings.sheetUrl, keepToken = state.settings.sheetToken, keepLive = state.settings.liveSync;
       state = {...defaultState(), ...j.data};
       state.settings.sheetUrl = keepUrl;
       state.settings.sheetToken = keepToken;
+      state.settings.liveSync = keepLive;
       save();
-      syncStatusMsg('Pulled from Sheet · ' + new Date().toLocaleTimeString('en-IN'));
-      toast('Pulled from Sheet');
+      syncStatusMsg('Full restore done · ' + new Date().toLocaleTimeString('en-IN'));
+      toast('Restored from Sheet');
       setTab('home');
     } else {
-      syncStatusMsg('Pull failed: ' + (j.error||'unknown error'), true);
+      syncStatusMsg('Restore failed: ' + (j.error||'unknown error'), true);
     }
   }catch(e){
-    syncStatusMsg('Pull failed — check the URL and your internet connection.', true);
+    syncStatusMsg('Restore failed — check the URL and your internet connection.', true);
   }
 }
 function exportData(){
@@ -1213,6 +1355,9 @@ renderTab = function(){
 
 /* ---------- Init ---------- */
 render();
+if(liveSyncEnabled()){
+  refreshFromServer().then(()=>render());
+}
 
 /* ---------- Service worker registration ---------- */
 if('serviceWorker' in navigator){
